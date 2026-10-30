@@ -2,6 +2,7 @@
 /*
 !/.gitignore
 !/.gitattributes
+!/CHANGELOG.md
 !/p4/
 
 # p4/ 内的本地备份不入库
