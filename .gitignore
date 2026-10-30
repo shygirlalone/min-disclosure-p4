@@ -1,0 +1,19 @@
+# 公开仓库：只跟踪 P4 代码
+/*
+!/.gitignore
+!/.gitattributes
+!/p4/
+
+# p4/ 内的本地备份不入库
+p4/**/*.bak
+p4/**/*.bak_*
+p4/*.bak
+p4/*.bak_*
+
+# 编辑器/系统文件
+__pycache__/
+*.py[cod]
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
