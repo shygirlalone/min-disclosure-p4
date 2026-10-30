@@ -1,9 +1,19 @@
-# 公开仓库：只跟踪 P4 代码
+# 公开仓库白名单：只跟踪可公开的代码与文档
 /*
 !/.gitignore
 !/.gitattributes
 !/CHANGELOG.md
+!/README.md
 !/p4/
+!/proto/
+!/tools/
+!/md/
+
+# 内部实验记录与设备接入信息不公开
+md/03-*
+md/04-*
+md/05-*
+md/07-*
 
 # p4/ 内的本地备份不入库
 p4/**/*.bak
@@ -11,7 +21,10 @@ p4/**/*.bak_*
 p4/*.bak
 p4/*.bak_*
 
-# 编辑器/系统文件
+# 本地私有 README
+README.local.md
+
+# Python / 编辑器 / 系统
 __pycache__/
 *.py[cod]
 .vscode/
