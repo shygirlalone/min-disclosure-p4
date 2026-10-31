@@ -275,8 +275,8 @@ def main():
     ap.add_argument("--bfrt-server", default="localhost:50052")
     ap.add_argument("--server-ip", required=True)
     ap.add_argument("--flows-file", default=None, help="五元组 JSON（装了才会区分流）")
-    ap.add_argument("--th-queue", type=int, default=None, help="队列阈值：level >= th 违规；255=禁用")
-    ap.add_argument("--th-load", type=int, default=None, help="负载阈值：level >= th 违规；255=禁用")
+    ap.add_argument("--th-queue", type=int, default=None, help="队列阈值：level >= th 违规；16=禁用")
+    ap.add_argument("--th-load", type=int, default=None, help="负载阈值：level >= th 违规；16=禁用")
     # ★ 路径判据是 p < th 才违规，所以禁用值是 0
     ap.add_argument("--th-path", type=int, default=None, help="路径阈值：level < th 违规；0=禁用")
     ap.add_argument("--path-avail", type=int, default=None, help="控制面写入的 path_avail 等级(0..15)")
@@ -315,7 +315,9 @@ def main():
     #   结果“设成 1 之后一条 dump 又把阈值改回 2”，怎么都调不动。
     if any(v is not None for v in (args.th_queue, args.th_load, args.th_path, args.path_avail)):
         q = 2 if args.th_queue is None else args.th_queue
-        l = 255 if args.th_load is None else args.th_load
+        # ★ 禁用值是 16，不是 255：判决用 8 位减法，level(0..15) - 16 回绕到 240..255（≥16 = 不违规）；
+        #   写 255 会得到 level-255 ∈ 1..16，反而落在“0..15 = 违规”区间里（实测踩过）。
+        l = 16 if args.th_load is None else args.th_load
         p = 0 if args.th_path is None else args.th_path
         avail = 15 if args.path_avail is None else args.path_avail
         world = cfg_word(q, l, p, avail)
