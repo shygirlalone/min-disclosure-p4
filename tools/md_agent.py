@@ -56,7 +56,7 @@ def decode_report(b: bytes) -> dict:
         "rsv0": pr & 0xF,
         "context_id": ctx,
         "timestamp": ts,
-        "rsv1": rsv1,
+        "pkt_seq": rsv1,   # 2026-10-31：_rsv1 复用为每流包序号
     }
 
 
@@ -156,7 +156,7 @@ def main() -> int:
         label = encode_label(
             flow_id=rep["flow_id"], function_id=fn, context_id=rep["context_id"],
             action_id=act, priority=pri, egress_port=port, expiry=expiry,
-            sequence=n_rep,
+            sequence=rep["pkt_seq"],
         )
         sock.send(eth + label)
         n_lbl += 1
@@ -164,7 +164,7 @@ def main() -> int:
         if args.verbose or n_rep % 20 == 1:
             print(f"[{n_rep:6d}] flow={rep['flow_id']:#06x} ctx={rep['context_id']} "
                   f"lv(q={rep['queue_level']} l={rep['load_level']} p={rep['path_level']}) "
-                  f"-> func={fn} pri={pri} port={port} expiry={expiry}ticks")
+                  f"seq={rep['pkt_seq']} -> func={fn} pri={pri} port={port} expiry={expiry}ticks")
 
         if args.max_labels and n_rep >= args.max_labels:
             print(f"[agent] 已发 {n_lbl} 个标签，退出")

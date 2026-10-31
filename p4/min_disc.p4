@@ -497,6 +497,17 @@ control MyEgress(inout headers hdr,
     Register<bit<32>, bit<8>>(16) reg_label_dl;   // deadline（低 16 位，D26 拆出）
     Register<bit<32>, bit<8>>(16) reg_label_flow; // 低 16 位 = flow_id（D27 拆出，写入零运算）
 
+    // ---- 每流包计数（小邹 2026-10-31 加）：任务书里的“这是这条流的第几个包” ----
+    // 每包 +1，写进 ctx_report._rsv1（16 位保留字段，**帧长不变**）。
+    // 复用保留字段的约定：_rsv1[15:0] = 该流自上次清零以来的包序号（回绕 65536）。
+    Register<bit<32>, bit<8>>(16) reg_pkt_seq;
+    RegisterAction<bit<32>, bit<8>, bit<32>>(reg_pkt_seq) pktseq_ra = {
+        void apply(inout bit<32> v, out bit<32> out_v) {
+            v = v + 32w1;
+            out_v = v;
+        }
+    };
+
     // ===================== 指标量化 =====================
     // 量化用 range table 完成，**不消耗任何寄存器访问**。
     // ⚠️ 桶边界是占位值，上机后按 V8 实测的 deq_qdepth 单位重标定。
@@ -942,6 +953,12 @@ control MyEgress(inout headers hdr,
             //   改用下面两层嵌套 if（每层都是 PHV 位 == 常量）。
             // context_id 高半区（与低半区隔了 reg_rep_ver 的 RMW，必在不同 stage）
             hdr.ctx_report.context_id[31:16] = meta.cur_ver[31:16];
+
+            // ---- 步骤 6b: 每流包序号（第几个包）----
+            // ★ 复用 _rsv1（16 位保留字段）：帧长不变，语义改为“本流包计数低 16 位”。
+            //   写在本组最后一个 stage，避免被 exp_yes/no 里的 _rsv1=0 覆盖。
+            bit<32> pseq = pktseq_ra.execute(meta.slot);
+            hdr.ctx_report._rsv1 = (bit<16>)pseq;
 
             // ---- 步骤 7: 上报（本包第一次承载该版本）----
             //   ★ 只剩下 valid + etherType：其余字段都已在前面的 stage 写好。
