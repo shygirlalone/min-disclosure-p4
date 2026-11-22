@@ -1379,7 +1379,7 @@ tofino supports up to 12 stages, using 17
 
 ---
 
-## D30. ★ `deq_timedelta` 语义纠正（2026-10-24，待实施）
+## D30. ★ `deq_timedelta` 语义纠正（2026-10-24，2026-10-30 已修方向）
 
 ### 问题
 
@@ -1396,9 +1396,13 @@ tofino supports up to 12 stages, using 17
 
 ### 状态
 
-**未实施。** 需要改 `p4/min_disc.p4` 的 `quantize_load` 并重新编译/重载
-（会中断当前数据面，须用户确认）。修复前 `load_level` 不可用 ——
-控制面应把 `th_load` 设为 16（永不判违规），避免误报。
+**方向已修（2026-10-30）**：`quantize_load` 随小邹改版去掉 `const entries`，
+改由控制面 `md_ctl --l-bounds` 写入**升序边界**（时延越大等级越高）；
+`write_buckets()` 已删除 `reverse` 参数，P4 注释同步。
+
+仍需上机 dump 确认 `q/l` 方向；`load_level` 的语义始终是**排队时延代理**，
+不是实测包速率。默认桶下若尚未复核，控制面可把 `th_load` 设为 16（永不判违规），
+避免误报。详见 `md/03` V-2。
 
 ---
 

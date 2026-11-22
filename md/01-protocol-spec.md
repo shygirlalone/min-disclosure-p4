@@ -1,9 +1,9 @@
-# 协议规格 v0.1（单一真源）
+# 协议规格 v0.4（单一真源）
 
 > ⚠️ **本文件是唯一真源。** `proto/constants.py`、`proto/*.py` 编解码器、`p4/include/headers.p4` 全部从这里派生。改协议必须先改本文件，再改代码，最后在交换机上编译校验（离线一致性检查已于 2026-10-17 删除）。
 
-- 版本：v0.3（Week1 草案，字段已预留扩展空间）
-- 日期：2026-10-17
+- 版本：v0.4-rev2（线格式仍为 14 B / 24 B）
+- 日期：2026-10-31
 - 目标平台：Intel Tofino / BF-SDE 9.10.0 / P4-16 TNA
 
 ---
@@ -88,7 +88,11 @@ Python 侧可直接用 `binascii.crc_hqx(data, 0xFFFF)` —— **参数完全等
 | 5 | 1 | `_rsv0` | 4 | 保留，必须 0 |
 | 6 | 4 | `context_id` | 32 | ★ **上下文版本号**：判决翻转时 +1，跨越即新版本。服务器原样回填到 `action_label_t.context_id` |
 | 10 | 2 | `timestamp` | 16 | `global_tstamp[31:16]`（tick，65.536 µs），每 **4.295 s** 回绕一次 |
-| 12 | 2 | `_rsv1` | 16 | 保留，必须 0（对齐用） |
+| 12 | 2 | `_rsv1` | 16 | ★ 2026-10-31 起复用为 `pkt_seq`：该流自上次清零以来的包序号（低 16 位，回绕 65536）。旧版本恒 0 |
+
+> ★ **`pkt_seq` 的门控条件**：egress 对每个 IPv4+TCP 包都执行 `reg_pkt_seq[slot] += 1`，
+> 不受 flow 登记 / 标签有效期 / 是否上报约束。未登记流走 `flow_key` 默认动作落到
+> slot 0，所有未登记流量共用该槽位计数。
 
 > v0.4 之后**没有 CRC**：报告在服务器侧解析，下行标签的重放/乱序保护由
 > `epoch` + `sequence` 提供，不依赖 CRC（见 §0 的说明）。
@@ -199,6 +203,11 @@ Python 侧可直接用 `binascii.crc_hqx(data, 0xFFFF)` —— **参数完全等
 | 16 | 4 | `sequence` | 32 | ★ **同 epoch 内单调递增，防重放** |
 | 20 | 2 | `expiry` | 16 | ★ **相对当前 tick 的偏移**。`0xFFFF`=永不过期 |
 | 22 | 2 | `crc16` | 16 | 覆盖字节 0..21。P4 侧填 0 |
+
+> ⚠️ **当前实现的 `sequence` 不承担防重放**：`tools/md_agent.py` 把报告中的
+> `pkt_seq` 原样填入该字段；`p4/min_disc.p4` 不校验 `epoch` / `sequence`
+> （见其文件头注释）。若以后启用校验，需先恢复为同 epoch 内单调递增的标签计数，
+> 否则计数器清零后会因 `sequence` 回退而被拒收。
 
 ### `function_id` 定义
 
@@ -568,6 +577,7 @@ ctx」，用第二个寄存器而非把 `reg_ctx_last` 加宽 —— 因为 sALU
 | v0.1 | 2026-09-23 | 初版。两个协议各 24 字节 |
 | v0.2 | 2026-10-07 | **寄存器重排到 sALU 宽度约束内**（D12/D13/D14）：`reg_sm`/`reg_label_seq` 改 `pair32_t`，`reg_cfg`/`reg_label` 降到 32 位，阈值降到 5 位，`report_seq` 寄存器里只存 16 位，`reg_label` 去掉 `queue_id`/`action_id`。**协议字段（§1/§2）与包长零改动。** |
 | v0.3 | 2026-10-17 | **按课题文档对齐语义**：① `context_id` 从"4 位等级"改为"32 位轮次计数器"，删除 `ctx_tolerance`；② `ctx_report_t` 改为携带三路等级（`queue_level`/`load_level`/`path_level`），`report_seq` 改名 `context_id`；③ `PORT_LOAD` 改用 `deq_timedelta`；④ `action_label_t` 增加 `egress_port`，移除 `queue_id`/`rate_kbps`，`QUEUE_REDIRECT` 改名 `PORT_REDIRECT`；⑤ `REPORTED` 态改为冷却限速上报（不再是"一报封死"）；⑥ 删除 `reg_report_ctx`，数据面访问 10 → 8 次；⑦ `reg_rseq` 用满 32 位。**两个包头仍为 24 字节。** |
+| v0.4-rev2 | 2026-10-31 | **`_rsv1` 复用为每流包序号 `pkt_seq`**（低 16 位，回绕 65536）：egress 新增 `reg_pkt_seq`，每包 +1 后写入；`md_agent.py` 把它填入标签的 `sequence`（P4 不校验）。**线格式与包长零改动。** |
 | v0.4-rev1 | 2026-10-24 | **寄存器/PHV 字段字节对齐**（D28）：`reg_cfg` 改 4×8 位（`[7:0]`/`[15:8]`/`[23:16]`/`[31:24]`），阈值与三指标差值一律 8 位；**线格式零改动**（包长仍 14 / 24 字节）。 |
 | v0.4 | 2026-10-23 | **D28 压缩 `ctx_report_t` 24 → 14 字节**：删除 `switch_id`/`port_id`/`diag_value`/`diag_metric`/`crc16`/`_pad`，`timestamp` 32 → 16 位（tick）；`DIAG_PRESENT` 停用、DIAG 消息类型停用。动机：egress PHV 分配吃紧导致上机编译失败 + 常量字段本就不承载信息。`action_label_t` 不变，仍 24 字节。 |
 | v0.3-rev2 | 2026-10-17 | **只改交换机内部实现，线格式零改动**（D23/D24）：① 状态/epoch/sequence 改乒乓双副本 + 相位寄存器，所有写走 RegisterAction，消除 D19 的「同寄存器依赖式读+写」；② 槽位 8→16，新增 `reg_label_flow` 存完整 flow_id，执行前比对；③ 标签接受后总是推进 `reg_seq`（修防重放漏写）；④ 增加 `rseq != 0` 守卫；⑤ 新增 `report_dst` 表，上报只能搭在发往服务器的包上；⑥ 服务器必须对已知全部流批量重签。**两个包头仍为 24 字节。** |

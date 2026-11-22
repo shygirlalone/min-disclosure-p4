@@ -13,6 +13,9 @@ EtherType 0x5555，固定 14 字节。字段表见 md/01-protocol-spec.md §1。
 ★ v0.3 起不再有 `metric_id`：一条报告固定带三路等级快照，位置本身即含义。
   `context_id` 是 32 位**上下文版本号**，判决翻转时 +1；服务器下发标签时
   原样回填（见 02-design-decisions.md D21）。
+
+★ 2026-10-31：`_rsv1` 复用为 `pkt_seq` —— 该流自上次清零以来的包序号
+  （低 16 位，回绕 65536）。线格式与包长不变；旧版本该字段恒 0。
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ class CtxReport:
     path_level: int = 0
     context_id: int = 0
     timestamp: int = 0
+    pkt_seq: int = 0          # ★ 复用 `_rsv1`：本流包序号低 16 位（2026-10-31）
 
     # ---- flags 便捷访问 ----
 
@@ -100,7 +104,7 @@ class CtxReport:
         w.u(0, 4, "_rsv0")
         w.u(self.context_id, 32, "context_id")
         w.u(self.timestamp, 16, "timestamp")
-        w.u(0, 16, "_rsv1")
+        w.u(self.pkt_seq, 16, "_rsv1")   # 2026-10-31 起承载每流包序号
         body = w.to_bytes()
         assert len(body) == CTX_REPORT_LEN, "ctx_report_t 编码长度不符"
         return body
@@ -109,7 +113,8 @@ class CtxReport:
     def decode(cls, data: bytes, strict: bool = True) -> "CtxReport":
         """从 14 字节解码。
 
-        strict=True 时，保留字段非 0 或 flags 高位非 0 会报错。
+        strict=True 时，`_rsv0` 非 0 或 flags 高位非 0 会报错。
+        `_rsv1` 自 2026-10-31 起承载 `pkt_seq`，不再按保留字段检查。
         """
         if len(data) != CTX_REPORT_LEN:
             raise ProtoError(
@@ -130,12 +135,12 @@ class CtxReport:
         rsv0 = r.u(4, "_rsv0")
         context_id = r.u(32, "context_id")
         timestamp = r.u(16, "timestamp")
-        rsv1 = r.u(16, "_rsv1")
+        pkt_seq = r.u(16, "_rsv1")
         r.require_end("ctx_report_t")
 
         if strict:
-            if rsv0 or rsv1:
-                raise ProtoError(f"保留字段必须为 0，实际 _rsv0={rsv0} _rsv1={rsv1}")
+            if rsv0:
+                raise ProtoError(f"保留字段必须为 0，实际 _rsv0={rsv0}")
             if flags >> (CR_FLAG_CTX_DEBOUNCED + 1):
                 raise ProtoError(
                     f"flags 高位（bit{CR_FLAG_CTX_DEBOUNCED + 1} 及以上）必须为 0：{flags:#04x}"
@@ -150,6 +155,7 @@ class CtxReport:
             path_level=path_level,
             context_id=context_id,
             timestamp=timestamp,
+            pkt_seq=pkt_seq,
         )
 
     # ---- 工具 ----
@@ -165,6 +171,7 @@ class CtxReport:
             "path_level": self.path_level,
             "context_id": self.context_id,
             "timestamp": self.timestamp,
+            "pkt_seq": self.pkt_seq,
         }
 
     def validate_ctx_range(self) -> None:
@@ -183,5 +190,6 @@ class CtxReport:
         return (
             f"CtxReport(ctx={self.context_id} "
             f"level(q={self.queue_level} l={self.load_level} p={self.path_level}) "
-            f"flow={self.flow_id:#06x} ts={self.timestamp} flags={self.flags:#04x})"
+            f"flow={self.flow_id:#06x} ts={self.timestamp} seq={self.pkt_seq} "
+            f"flags={self.flags:#04x})"
         )

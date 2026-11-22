@@ -299,6 +299,15 @@ def main():
                     help="看 egress 的 reg_ctx_last / reg_ver / reg_rep_ver（判断判决是否已锁存）")
     args = ap.parse_args()
 
+    # ★ 2026-10-31：兼容旧脚本里的禁用值 255。判决用 8 位减法，
+    #   level(0..15) - 255 回绕到 1..16，反而落在“恒违规”区间；
+    #   真正的禁用值是 16（见 CFG_TH_DISABLED）。显式传 255 时按 16 处理并告警。
+    for opt in ("th_queue", "th_load"):
+        if getattr(args, opt) == 255:
+            print(f"[warn] --{opt.replace('_', '-')}=255 在 8 位减法判决下恒违规，"
+                  f"已按禁用值 16 处理")
+            setattr(args, opt, 16)
+
     client = gc.ClientInterface(grpc_addr=args.bfrt_server, client_id=0, device_id=0)
     info = client.bfrt_info_get(args.prog)
     target = gc.Target(device_id=0, pipe_id=0xFFFF)

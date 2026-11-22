@@ -1,5 +1,53 @@
 # 更新日志
 
+## 2026-10-31 — 同步远端：每流包序号 + 阈值禁用值修复
+
+### 1. 数据面：每流包序号（小邹提交 `72277b3`）
+
+- `p4/min_disc.p4` 新增 `reg_pkt_seq`（16 槽 × 32 位）与 `pktseq_ra`，每个
+  IPv4+TCP 包在 egress 执行一次 `+1`，结果写进 `ctx_report._rsv1`
+  （低 16 位）。**帧长与线格式不变。**
+- `tools/md_agent.py`：报告解码把 `rsv1` 改名 `pkt_seq`，下发标签的
+  `sequence` 改为回填该值。
+- ⚠️ 计数**不受 flow 登记 / expiry / 是否上报门控**：未登记流落到 slot 0，
+  所有未登记流量共用该槽。与两个直接索引计数器同属待修的 P0 问题。
+- ✅ 2026-10-31 上机编译通过：0 error / 5 warning（与基线相同的 5 条
+  parser 警告）；`reg_pkt_seq` 与 `reg_rep_ver` 同处 **egress stage 9**，
+  命名表的 stage 范围与 10-30 基线一致（ingress 0–6 / egress 0–10），
+  未新增流水级。
+
+### 2. 控制面：阈值禁用值 255 → 16（小邹提交 `55fc775`）
+
+- `verdict_map` 用 8 位减法判 `0..15` / `≥16`，所以 `th = 16` 才是禁用值；
+  写 `255` 会得到 `level - 255 ≡ level + 1`，对 level 0–14 恒违规。
+- `md_ctl.py` 的默认值/help 改为 16。本次补充：显式传
+  `--th-queue 255` / `--th-load 255` 时告警并按 16 处理，兼容旧脚本。
+- 之前运行实例的 `reg_cfg = 0x0F00FF03`（`th_load = 255`）正是这个 bug，
+  下一轮测试应写 `th_load = 16`。
+
+### 3. 本次同步修复（本地）
+
+- `README.md`：示例 `--th-load 255` → `16`，阈值语义同步说明回绕问题。
+- `proto/ctx_report.py`：新增 `pkt_seq` 字段；`encode()` 写入该字段，
+  `decode(strict=True)` 不再要求 `_rsv1 == 0`（`_rsv0` 仍必须为 0）；
+  `to_dict()` / `__repr__` 同步。
+- `proto/constants.py`：`CTX_REPORT_LAYOUT` 中 `_rsv1` 加复用说明（字段名不变，
+  仍与 `headers.p4` 对齐）。
+- `md/01-protocol-spec.md`：字段表更新为 `pkt_seq`；补充门控条件与
+  `sequence` 当前不承担防重放的说明；新增 v0.4-rev2 变更记录。
+- `md_ctl.py`：上述 255 兜底。
+
+### 4. 仍待验证
+
+- 运行时验证 `pkt_seq` 是否按预期递增（寄存器 dump / 抓 0x5555 报告）。
+  本次编译**未 `make install`**；不过交换机当前安装的 `min_disc`（小邹
+  2026-10-31 16:23 安装）的 `bf-rt.json` md5 与新编译一致
+  （`c29a4b5a92f7d0921aaeeacf629346b2`），已包含 `reg_pkt_seq`。
+- 计数器/包序号的 flow 与 expiry 门控（P0）。
+- `qid` 是否在 TM 真正生效（读每队列计数）。
+
+---
+
 ## 2026-10-30 — 采纳小邹的 Week2 改版
 
 ### 1. 数据面采纳

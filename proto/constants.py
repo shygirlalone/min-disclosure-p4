@@ -190,6 +190,7 @@ CTX_REPORT_LAYOUT = (
     ("_rsv0", 4, "bit<4>"),
     ("context_id", 32, "bit<32>"),
     ("timestamp", 16, "bit<16>"),  # ★ v0.4：global_tstamp[31:16]，4.295 s 回绕
+    # ★ 2026-10-31：复用为每流包序号 pkt_seq（低 16 位）；旧版本恒 0
     ("_rsv1", 16, "bit<16>"),
 )
 

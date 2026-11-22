@@ -81,7 +81,7 @@ make install
 # 1) 交换机：装上报目的地、阈值、10 条流、运行时量化桶
 python3 tools/md_ctl.py --prog min_disc --server-ip <server-ip> \
   --flows-file tools/flows10.json \
-  --th-queue 1 --th-load 255 --th-path 0 --path-avail 15 \
+  --th-queue 1 --th-load 16 --th-path 0 --path-avail 15 \
   --q-bounds "5,20,100" --l-bounds "100,1000,10000" \
   --reset-ctx --reset-ing
 
@@ -99,7 +99,8 @@ python3 tools/md_ctl.py --prog min_disc --server-ip <server-ip> \
 
 阈值语义（`reg_cfg` 按字节对齐）：
 
-- `th_queue` / `th_load`：`level >= th` 判违规；`255` = 禁用。
+- `th_queue` / `th_load`：`level >= th` 判违规；`16` = 禁用。
+  ⚠️ 不要写 `255`：判决用 8 位减法，`level - 255` 回绕到 1..16，反而恒违规。
 - `th_path`：`level < th` 判违规；`0` = 禁用。
 - `path_avail`：越大越好，`15` = 最好。
 - `deq_timedelta` 是**排队时延**（ns），越大等级越高，`--l-bounds` 必须升序。
