@@ -208,8 +208,9 @@ def write_buckets(info, target, P, tbl_name, field, action, bounds, max_val):
 
 
 def dump_egress(info, target, P):
-    """看 egress 的上下文状态：reg_ctx_last 是“上次判决”，非 0 说明已经锁存过。"""
-    for name in ("reg_ctx_last", "reg_ver", "reg_rep_ver"):
+    """看 egress 的上下文状态：reg_ctx_last 是“上次判决”，非 0 说明已经锁存过；
+    reg_pkt_seq 是每流包序号（2026-10-31 起复用 ctx_report._rsv1）。"""
+    for name in ("reg_ctx_last", "reg_ver", "reg_rep_ver", "reg_pkt_seq"):
         try:
             tbl = info.table_get(f"pipe.MyEgress.{name}")
         except Exception as ex:
@@ -226,9 +227,10 @@ def dump_egress(info, target, P):
 
 
 def reset_ctx(info, target, P, slots=16):
-    """把 egress 的上下文判决/版本清零，等价于“重新开始”，
-    这样下一次打流一定会触发一次“0 -> 违规”的翻转、重新上报。"""
-    for name in ("reg_ctx_last", "reg_ver", "reg_rep_ver"):
+    """把 egress 的上下文判决 / 版本 / 每流包序号清零，等价于“重新开始”，
+    这样下一次打流一定会触发一次“0 -> 违规”的翻转、重新上报；
+    pkt_seq 也会从 0 重新计数。"""
+    for name in ("reg_ctx_last", "reg_ver", "reg_rep_ver", "reg_pkt_seq"):
         try:
             tbl = info.table_get(f"pipe.MyEgress.{name}")
         except Exception as ex:

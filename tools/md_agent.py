@@ -8,7 +8,7 @@
     sudo python3 md_agent.py --iface enp101s0f1 --expiry-ms 50 --priority 3 --verbose
 
 决策（可改）：
-    path_level >= 8            -> PORT_REDIRECT，egress_port=8
+    path_level <= 8（越低越差） -> PORT_REDIRECT，egress_port=--redirect-port
     queue_level >= q_th        -> PRIORITY_SET，priority=3（高）
     load_level  >= l_th        -> PRIORITY_SET，priority=1
     其它                        -> NOOP（priority=0）
@@ -83,14 +83,16 @@ def encode_label(flow_id: int, function_id: int, context_id: int,
     return bytes(out)
 
 
-def decide(rep: dict, q_th: int, l_th: int) -> tuple:
+def decide(rep: dict, q_th: int, l_th: int, redirect_port: int = 172) -> tuple:
     """(function_id, action_id, priority, egress_port)
 
     ★ path_level = path_avail（控制面写的“路径可用等级”，**越大越好**，15 = 最好）。
-      所以劣化是 `<= 8`，不是 `>= 8`（之前写反了，会误把流量打到没人接的 8 号口）。
+      所以劣化是 `<= 8`，不是 `>= 8`。
+    ★ redirect_port 是 Tofino 的 **dev port**，不是前面板口编号：
+      实验室里 5/0 = 164、6/0 = 172。默认 172（6/0）。
     """
     if rep["path_level"] <= 8:
-        return (FUNC_PORT_REDIRECT, 0, 0, 8)
+        return (FUNC_PORT_REDIRECT, 0, 0, redirect_port)
     if rep["queue_level"] >= q_th:
         return (FUNC_PRIORITY_SET, 0, 3, 0)
     if rep["load_level"] >= l_th:
@@ -104,6 +106,8 @@ def main() -> int:
     ap.add_argument("--expiry-ms", type=float, default=50.0)
     ap.add_argument("--q-th", type=int, default=2, help="队列等级阈值（0..15）")
     ap.add_argument("--l-th", type=int, default=3)
+    ap.add_argument("--redirect-port", type=int, default=172,
+                    help="PORT_REDIRECT 的目标 dev port（6/0=172；不是前面板口编号）")
     ap.add_argument("--max-labels", type=int, default=0, help="0 = 不限")
     ap.add_argument("--mode", choices=["priority", "measure"], default="priority",
                     help="priority=按等级下发 qid；measure=下发 MEASURE（flow 1-5 进 sketch0，6-10 进 sketch1）")
@@ -111,6 +115,8 @@ def main() -> int:
                     help="不先发 REVOKE（默认会发：收到上报先清缓存，再下发新动作）")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
+    if not 0 <= args.redirect_port <= 255:
+        ap.error("--redirect-port 必须在 0..255（标签的 egress_port 是 8 位）")
 
     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(3))
     sock.bind((args.iface, 0))
@@ -131,6 +137,15 @@ def main() -> int:
             print("[agent] 解码失败:", repr(ex))
             continue
 
+        # ★ 0xFFFF 是未登记流的 sentinel，也是协议里的通配值。
+        #   P4 对未登记包默认 flow_id=0xFFFF、slot=0；如果这里回发
+        #   flow_id=0xFFFF 的标签，它会落进 slot 0 并匹配所有未登记流。
+        #   简单实验里直接跳过，不为未登记流签发任何标签。
+        if rep["flow_id"] == 0xFFFF:
+            if args.verbose:
+                print("[agent] skip unregistered flow_id=0xFFFF")
+            continue
+
         n_rep += 1
         if args.mode == "measure":
             # Case study 1：服务器直接指定 5+5 分桶（对比方案做不到这件事）
@@ -138,7 +153,8 @@ def main() -> int:
             act = 0 if rep["flow_id"] <= 5 else 1
             pri, port = 0, 0
         else:
-            fn, act, pri, port = decide(rep, args.q_th, args.l_th)
+            fn, act, pri, port = decide(rep, args.q_th, args.l_th,
+                                        args.redirect_port)
         expiry = ms_to_ticks(args.expiry_ms)
 
         dst_mac = frame[6:12]      # 交换机口 MAC（上报帧的源）
